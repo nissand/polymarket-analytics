@@ -7,11 +7,13 @@ import {
   LayoutDashboard,
   Plus,
   TrendingUp,
+  Plug,
 } from "lucide-react";
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "New Capture", href: "/capture/new", icon: Plus },
+  { name: "MCP Console", href: "/mcp", icon: Plug },
 ];
 
 export function AppSidebar() {
