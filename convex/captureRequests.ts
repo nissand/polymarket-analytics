@@ -224,7 +224,7 @@ export const resetProcessing = internalMutation({
   },
 });
 
-// Delete a capture request and all related data
+// Delete a capture request and all related data (batched to avoid limits)
 export const remove = mutation({
   args: { id: v.id("captureRequests") },
   handler: async (ctx, { id }) => {
@@ -236,58 +236,120 @@ export const remove = mutation({
       throw new Error("Not found");
     }
 
-    // Delete all related dailyPriceSummary records
-    const priceSummaries = await ctx.db
-      .query("dailyPriceSummary")
-      .withIndex("by_market")
-      .collect();
+    // Mark as deleting (use failed status to prevent processing)
+    await ctx.db.patch(id, {
+      status: "failed",
+      errorMessage: "Deleting...",
+      updatedAt: Date.now(),
+    });
 
-    // Get all markets for this request to filter price summaries
-    const markets = await ctx.db
-      .query("markets")
-      .withIndex("by_captureRequest", (q) => q.eq("captureRequestId", id))
-      .collect();
+    // Schedule the batched delete process
+    await ctx.scheduler.runAfter(0, internal.captureRequests.deleteRelatedData, {
+      captureRequestId: id,
+      step: "markets",
+    });
 
-    const marketIds = new Set(markets.map(m => m._id));
+    return { deleting: true };
+  },
+});
 
-    // Delete price summaries for these markets
-    for (const summary of priceSummaries) {
-      if (marketIds.has(summary.marketId)) {
-        await ctx.db.delete(summary._id);
+// Internal mutation to delete related data in batches
+export const deleteRelatedData = internalMutation({
+  args: {
+    captureRequestId: v.id("captureRequests"),
+    step: v.union(
+      v.literal("markets"),
+      v.literal("events"),
+      v.literal("finish")
+    ),
+    cursor: v.optional(v.string()),
+  },
+  handler: async (ctx, { captureRequestId, step, cursor }) => {
+    const BATCH_SIZE = 100;
+
+    if (step === "markets") {
+      // Get a batch of markets
+      let query = ctx.db
+        .query("markets")
+        .withIndex("by_captureRequest", (q) => q.eq("captureRequestId", captureRequestId));
+
+      const markets = await query.take(BATCH_SIZE);
+
+      if (markets.length === 0) {
+        // No more markets, move to events
+        await ctx.scheduler.runAfter(0, internal.captureRequests.deleteRelatedData, {
+          captureRequestId,
+          step: "events",
+        });
+        return;
+      }
+
+      // Delete price data for these markets
+      for (const market of markets) {
+        // Delete dailyPriceSummary for this market
+        const summaries = await ctx.db
+          .query("dailyPriceSummary")
+          .withIndex("by_market", (q) => q.eq("marketId", market._id))
+          .take(500);
+
+        for (const summary of summaries) {
+          await ctx.db.delete(summary._id);
+        }
+
+        // Delete priceHistory for this market
+        const history = await ctx.db
+          .query("priceHistory")
+          .withIndex("by_market", (q) => q.eq("marketId", market._id))
+          .take(500);
+
+        for (const h of history) {
+          await ctx.db.delete(h._id);
+        }
+
+        // Delete the market
+        await ctx.db.delete(market._id);
+      }
+
+      // Schedule next batch
+      await ctx.scheduler.runAfter(0, internal.captureRequests.deleteRelatedData, {
+        captureRequestId,
+        step: "markets",
+      });
+
+    } else if (step === "events") {
+      // Get a batch of events
+      const events = await ctx.db
+        .query("events")
+        .withIndex("by_captureRequest", (q) => q.eq("captureRequestId", captureRequestId))
+        .take(BATCH_SIZE);
+
+      if (events.length === 0) {
+        // No more events, finish up
+        await ctx.scheduler.runAfter(0, internal.captureRequests.deleteRelatedData, {
+          captureRequestId,
+          step: "finish",
+        });
+        return;
+      }
+
+      // Delete events
+      for (const event of events) {
+        await ctx.db.delete(event._id);
+      }
+
+      // Schedule next batch
+      await ctx.scheduler.runAfter(0, internal.captureRequests.deleteRelatedData, {
+        captureRequestId,
+        step: "events",
+      });
+
+    } else if (step === "finish") {
+      // Delete the capture request itself
+      const request = await ctx.db.get(captureRequestId);
+      if (request) {
+        await ctx.db.delete(captureRequestId);
       }
     }
-
-    // Delete all related priceHistory records (if any exist)
-    const priceHistory = await ctx.db
-      .query("priceHistory")
-      .withIndex("by_market")
-      .collect();
-
-    for (const history of priceHistory) {
-      if (marketIds.has(history.marketId)) {
-        await ctx.db.delete(history._id);
-      }
-    }
-
-    // Delete all markets
-    for (const market of markets) {
-      await ctx.db.delete(market._id);
-    }
-
-    // Delete all related events
-    const events = await ctx.db
-      .query("events")
-      .withIndex("by_captureRequest", (q) => q.eq("captureRequestId", id))
-      .collect();
-
-    for (const event of events) {
-      await ctx.db.delete(event._id);
-    }
-
-    // Finally, delete the capture request itself
-    await ctx.db.delete(id);
-
-    return { deleted: true };
   },
 });
 
