@@ -301,7 +301,54 @@ export async function fetchGammaMarket(marketId: string): Promise<GammaMarket> {
   return response.json();
 }
 
+// Maximum interval the CLOB API accepts (14 days in seconds)
+const MAX_CLOB_INTERVAL = 14 * 24 * 60 * 60;
+
 export async function fetchClobPriceHistory(params: {
+  tokenId: string;
+  startTs: number;
+  endTs: number;
+  fidelity: number;
+}): Promise<PriceHistoryResponse> {
+  const { tokenId, startTs, endTs, fidelity } = params;
+  const interval = endTs - startTs;
+
+  // If interval exceeds max, fetch in chunks
+  if (interval > MAX_CLOB_INTERVAL) {
+    console.log(`CLOB: Interval ${Math.round(interval / 86400)} days exceeds max, fetching in chunks...`);
+    const allHistory: PricePoint[] = [];
+    let currentStart = startTs;
+
+    while (currentStart < endTs) {
+      const currentEnd = Math.min(currentStart + MAX_CLOB_INTERVAL, endTs);
+
+      try {
+        const chunkData = await fetchClobPriceHistoryChunk({
+          tokenId,
+          startTs: currentStart,
+          endTs: currentEnd,
+          fidelity,
+        });
+
+        if (chunkData.history && chunkData.history.length > 0) {
+          allHistory.push(...chunkData.history);
+        }
+      } catch (error) {
+        console.error(`CLOB chunk error for ${currentStart}-${currentEnd}:`, error);
+      }
+
+      currentStart = currentEnd;
+      await sleep(50); // Small delay between chunks
+    }
+
+    console.log(`CLOB: Fetched ${allHistory.length} total points across chunks`);
+    return { history: allHistory };
+  }
+
+  return fetchClobPriceHistoryChunk(params);
+}
+
+async function fetchClobPriceHistoryChunk(params: {
   tokenId: string;
   startTs: number;
   endTs: number;
@@ -313,8 +360,6 @@ export async function fetchClobPriceHistory(params: {
   url.searchParams.set("endTs", String(params.endTs));
   url.searchParams.set("fidelity", String(params.fidelity));
 
-  console.log(`CLOB request: ${url.toString()}`);
-
   const response = await fetchWithRetry(url.toString());
 
   if (!response.ok) {
@@ -325,15 +370,16 @@ export async function fetchClobPriceHistory(params: {
 
   const data = await response.json();
 
+  // Handle "interval too long" error in response body
+  if (data.error) {
+    console.error(`CLOB API error response: ${data.error}`);
+    return { history: [] };
+  }
+
   // Handle different response formats
   if (!data.history) {
     console.log(`CLOB API returned no history field for token ${params.tokenId}:`, JSON.stringify(data).substring(0, 500));
     return { history: [] };
-  }
-
-  if (data.history.length === 0) {
-    console.log(`CLOB API returned empty history array for token ${params.tokenId}`);
-    console.log(`  Request params: startTs=${params.startTs} (${new Date(params.startTs * 1000).toISOString()}), endTs=${params.endTs} (${new Date(params.endTs * 1000).toISOString()})`);
   }
 
   return data;
