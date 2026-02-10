@@ -108,6 +108,8 @@ export default function CaptureDetailPage() {
       {skewAnalysis && skewAnalysis.marketCount > 0 && (
         <SkewAnalysisChart
           marketCount={skewAnalysis.marketCount}
+          totalResolvedMarkets={skewAnalysis.totalResolvedMarkets}
+          limitApplied={skewAnalysis.limitApplied}
           dataPoints={skewAnalysis.dataPoints}
           stats={skewAnalysis.stats}
         />

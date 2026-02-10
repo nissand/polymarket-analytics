@@ -147,34 +147,23 @@ export const getSkewAnalysis = query({
       return { marketCount: 0, dataPoints: [], stats: null };
     }
 
-    // Get all markets for this request
+    // Get markets for this request (limit to avoid document limits)
+    const MAX_MARKETS = 200;
     const markets = await ctx.db
       .query("markets")
       .withIndex("by_captureRequest", (q) => q.eq("captureRequestId", captureRequestId))
-      .collect();
+      .take(1000); // Get up to 1000 markets
 
     // Filter to only closed markets with resolved outcomes
-    const resolvedMarkets = markets.filter(m => m.closed && m.closedTime && m.resolvedOutcome);
+    const allResolvedMarkets = markets.filter(m => m.closed && m.closedTime && m.resolvedOutcome);
 
-    if (resolvedMarkets.length === 0) {
+    if (allResolvedMarkets.length === 0) {
       return { marketCount: 0, dataPoints: [], stats: null };
     }
 
-    // Build a map of market ID to market for quick lookup
-    const marketMap = new Map(resolvedMarkets.map(m => [m._id.toString(), m]));
-    const marketIds = new Set(resolvedMarkets.map(m => m._id.toString()));
-
-    // Get price history for this capture request using the index
-    // Only fetch "Yes" outcome data since that's all we need for skew
-    const allPriceData = await ctx.db
-      .query("dailyPriceSummary")
-      .withIndex("by_captureRequest", (q) => q.eq("captureRequestId", captureRequestId))
-      .collect();
-
-    // Filter to only resolved markets and "Yes" outcomes
-    const relevantPriceData = allPriceData.filter(
-      p => marketIds.has(p.marketId.toString()) && p.outcomeLabel === "Yes"
-    );
+    // Limit to MAX_MARKETS to stay within document limits
+    const resolvedMarkets = allResolvedMarkets.slice(0, MAX_MARKETS);
+    const limitApplied = allResolvedMarkets.length > MAX_MARKETS;
 
     // Bucket size in hours for grouping
     const BUCKET_SIZE = 6;
@@ -187,10 +176,13 @@ export const getSkewAnalysis = query({
       const closedTime = market.closedTime!;
       const resolvedToYes = market.resolvedOutcome === "Yes";
 
-      // Get price data for this market (already filtered to "Yes" outcomes)
-      const marketPrices = relevantPriceData.filter(
-        p => p.marketId.toString() === market._id.toString()
-      );
+      // Get price data for this specific market (Yes outcome only)
+      // Fetch per-market to avoid reading all price data at once
+      const marketPrices = await ctx.db
+        .query("dailyPriceSummary")
+        .withIndex("by_market", (q) => q.eq("marketId", market._id))
+        .filter((q) => q.eq(q.field("outcomeLabel"), "Yes"))
+        .take(150); // Max ~30 days * 4 samples + buffer
 
       for (const pricePoint of marketPrices) {
         // Calculate timestamp from date and hour
@@ -260,6 +252,8 @@ export const getSkewAnalysis = query({
 
     return {
       marketCount: resolvedMarkets.length,
+      totalResolvedMarkets: allResolvedMarkets.length,
+      limitApplied,
       dataPoints,
       stats: {
         overallAvgSkew,

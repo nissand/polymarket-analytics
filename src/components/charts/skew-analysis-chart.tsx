@@ -30,11 +30,13 @@ interface SkewStats {
 
 interface SkewAnalysisChartProps {
   marketCount: number;
+  totalResolvedMarkets?: number;
+  limitApplied?: boolean;
   dataPoints: AggregatedDataPoint[];
   stats: SkewStats | null;
 }
 
-export function SkewAnalysisChart({ marketCount, dataPoints, stats }: SkewAnalysisChartProps) {
+export function SkewAnalysisChart({ marketCount, totalResolvedMarkets, limitApplied, dataPoints, stats }: SkewAnalysisChartProps) {
   if (!dataPoints || dataPoints.length === 0) {
     return (
       <Card>
@@ -71,7 +73,10 @@ export function SkewAnalysisChart({ marketCount, dataPoints, stats }: SkewAnalys
         <CardTitle className="text-lg">Skew Analysis</CardTitle>
         <CardDescription>
           Average price deviation from final outcome across {marketCount} resolved markets.
-          Lower skew = better market prediction.
+          {limitApplied && totalResolvedMarkets && (
+            <span className="text-yellow-600"> (limited from {totalResolvedMarkets} total)</span>
+          )}
+          {" "}Lower skew = better market prediction.
         </CardDescription>
       </CardHeader>
       <CardContent>
