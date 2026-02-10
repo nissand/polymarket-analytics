@@ -149,10 +149,11 @@ export function SkewAnalysisChart({ marketCount, dataPoints, stats }: SkewAnalys
               />
               <Tooltip
                 labelFormatter={(value) => `${formatHours(value as number)} before close`}
-                formatter={(value, name) => {
+                formatter={(value, name, props) => {
                   const numValue = typeof value === "number" ? value : 0;
                   if (name === "avgSkew") {
-                    return [`${(numValue * 100).toFixed(1)}%`, "Avg Skew"];
+                    const count = props?.payload?.sampleCount;
+                    return [`${(numValue * 100).toFixed(1)}% (${count} markets)`, "Avg Skew"];
                   }
                   if (name === "minSkew") {
                     return [`${(numValue * 100).toFixed(1)}%`, "Min"];
