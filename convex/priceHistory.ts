@@ -160,14 +160,21 @@ export const getSkewAnalysis = query({
       return { marketCount: 0, dataPoints: [], stats: null };
     }
 
-    // Get all price history for these markets
+    // Build a map of market ID to market for quick lookup
+    const marketMap = new Map(resolvedMarkets.map(m => [m._id.toString(), m]));
+    const marketIds = new Set(resolvedMarkets.map(m => m._id.toString()));
+
+    // Get price history for this capture request using the index
+    // Only fetch "Yes" outcome data since that's all we need for skew
     const allPriceData = await ctx.db
       .query("dailyPriceSummary")
-      .withIndex("by_market")
+      .withIndex("by_captureRequest", (q) => q.eq("captureRequestId", captureRequestId))
       .collect();
 
-    const marketIds = new Set(resolvedMarkets.map(m => m._id));
-    const relevantPriceData = allPriceData.filter(p => marketIds.has(p.marketId));
+    // Filter to only resolved markets and "Yes" outcomes
+    const relevantPriceData = allPriceData.filter(
+      p => marketIds.has(p.marketId.toString()) && p.outcomeLabel === "Yes"
+    );
 
     // Bucket size in hours for grouping
     const BUCKET_SIZE = 6;
@@ -180,9 +187,9 @@ export const getSkewAnalysis = query({
       const closedTime = market.closedTime!;
       const resolvedToYes = market.resolvedOutcome === "Yes";
 
-      // Get price data for "Yes" outcome only
+      // Get price data for this market (already filtered to "Yes" outcomes)
       const marketPrices = relevantPriceData.filter(
-        p => p.marketId === market._id && p.outcomeLabel === "Yes"
+        p => p.marketId.toString() === market._id.toString()
       );
 
       for (const pricePoint of marketPrices) {

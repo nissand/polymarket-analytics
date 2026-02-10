@@ -143,7 +143,8 @@ export default defineSchema({
   })
     .index("by_market", ["marketId"])
     .index("by_market_and_token", ["marketId", "clobTokenId"])
-    .index("by_market_token_date", ["marketId", "clobTokenId", "date"]),
+    .index("by_market_token_date", ["marketId", "clobTokenId", "date"])
+    .index("by_captureRequest", ["captureRequestId"]),
 
   polymarketTags: defineTable({
     polymarketTagId: v.string(),
