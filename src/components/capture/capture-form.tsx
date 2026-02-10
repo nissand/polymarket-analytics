@@ -50,13 +50,20 @@ export function CaptureForm() {
   const router = useRouter();
   const createCapture = useMutation(api.captureRequests.create);
 
+  const [name, setName] = useState<string>("");
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [limit, setLimit] = useState<number>(100);
   const [category, setCategory] = useState<string>("");
+  const [searchTerm, setSearchTerm] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!name.trim()) {
+      toast.error("Please enter a name for this import");
+      return;
+    }
 
     if (!dateRange?.from || !dateRange?.to) {
       toast.error("Please select a date range");
@@ -82,10 +89,12 @@ export function CaptureForm() {
 
     try {
       await createCapture({
+        name: name.trim(),
         dateRangeStart: dateRange.from.getTime(),
         dateRangeEnd: dateRange.to.getTime(),
         limit,
         category: category && category !== "all" ? category : undefined,
+        searchTerm: searchTerm.trim() || undefined,
       });
 
       toast.success("Import started - fetching markets");
@@ -110,6 +119,22 @@ export function CaptureForm() {
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2">
+            <Label htmlFor="name">Import Name</Label>
+            <Input
+              id="name"
+              type="text"
+              placeholder="e.g., Politics Jan 2025, Super Bowl Markets"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full max-w-md"
+              required
+            />
+            <p className="text-sm text-muted-foreground">
+              A descriptive name to identify this import
+            </p>
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="dateRange">Market Start Date Range</Label>
             <DateRangePicker value={dateRange} onChange={setDateRange} />
             <p className="text-sm text-muted-foreground">
@@ -133,6 +158,21 @@ export function CaptureForm() {
             </Select>
             <p className="text-sm text-muted-foreground">
               Only import markets from events in this category
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="searchTerm">Event Name Filter (Optional)</Label>
+            <Input
+              id="searchTerm"
+              type="text"
+              placeholder="e.g., trump, bitcoin, nba"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-64"
+            />
+            <p className="text-sm text-muted-foreground">
+              Only import events/markets containing this term in title or slug
             </p>
           </div>
 

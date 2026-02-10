@@ -82,7 +82,6 @@ export function PriceChart({ data, outcomes, resolvedOutcome, closedTime, outcom
 
     const resolutionEntry: Record<string, number | string> = {
       date: resolutionDatetime,
-      isResolution: true
     };
 
     // Add final prices for each outcome

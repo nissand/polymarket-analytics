@@ -31,10 +31,12 @@ export const checkAuthStatus = query({
 
 export const create = mutation({
   args: {
+    name: v.string(),
     dateRangeStart: v.number(),
     dateRangeEnd: v.number(),
     limit: v.optional(v.number()),
     category: v.optional(v.string()),
+    searchTerm: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     console.log("captureRequests.create called");
@@ -63,6 +65,7 @@ export const create = mutation({
 
     return await ctx.db.insert("captureRequests", {
       userId,
+      name: args.name.trim(),
       status: "pending",
       tagIds: [],
       tagLabels: [],
@@ -70,6 +73,7 @@ export const create = mutation({
       dateRangeEnd: args.dateRangeEnd,
       limit: args.limit ?? 100,
       category: args.category,
+      searchTerm: args.searchTerm,
       progress: {
         totalEvents: 0,
         processedEvents: 0,
@@ -217,6 +221,73 @@ export const resetProcessing = internalMutation({
     }
 
     return { stopped: processing.length };
+  },
+});
+
+// Delete a capture request and all related data
+export const remove = mutation({
+  args: { id: v.id("captureRequests") },
+  handler: async (ctx, { id }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Unauthorized");
+
+    const request = await ctx.db.get(id);
+    if (!request || request.userId !== userId) {
+      throw new Error("Not found");
+    }
+
+    // Delete all related dailyPriceSummary records
+    const priceSummaries = await ctx.db
+      .query("dailyPriceSummary")
+      .withIndex("by_market")
+      .collect();
+
+    // Get all markets for this request to filter price summaries
+    const markets = await ctx.db
+      .query("markets")
+      .withIndex("by_captureRequest", (q) => q.eq("captureRequestId", id))
+      .collect();
+
+    const marketIds = new Set(markets.map(m => m._id));
+
+    // Delete price summaries for these markets
+    for (const summary of priceSummaries) {
+      if (marketIds.has(summary.marketId)) {
+        await ctx.db.delete(summary._id);
+      }
+    }
+
+    // Delete all related priceHistory records (if any exist)
+    const priceHistory = await ctx.db
+      .query("priceHistory")
+      .withIndex("by_market")
+      .collect();
+
+    for (const history of priceHistory) {
+      if (marketIds.has(history.marketId)) {
+        await ctx.db.delete(history._id);
+      }
+    }
+
+    // Delete all markets
+    for (const market of markets) {
+      await ctx.db.delete(market._id);
+    }
+
+    // Delete all related events
+    const events = await ctx.db
+      .query("events")
+      .withIndex("by_captureRequest", (q) => q.eq("captureRequestId", id))
+      .collect();
+
+    for (const event of events) {
+      await ctx.db.delete(event._id);
+    }
+
+    // Finally, delete the capture request itself
+    await ctx.db.delete(id);
+
+    return { deleted: true };
   },
 });
 

@@ -131,3 +131,136 @@ export const getByMarket = query({
       .collect();
   },
 });
+
+// Get skew analysis data for all markets in a capture request
+// Skew = distance from final resolved price, with time relative to close
+// Returns AGGREGATED average skew across all markets at each time point
+export const getSkewAnalysis = query({
+  args: { captureRequestId: v.id("captureRequests") },
+  handler: async (ctx, { captureRequestId }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return { marketCount: 0, dataPoints: [], stats: null };
+
+    // Verify request belongs to user
+    const request = await ctx.db.get(captureRequestId);
+    if (!request || request.userId !== userId) {
+      return { marketCount: 0, dataPoints: [], stats: null };
+    }
+
+    // Get all markets for this request
+    const markets = await ctx.db
+      .query("markets")
+      .withIndex("by_captureRequest", (q) => q.eq("captureRequestId", captureRequestId))
+      .collect();
+
+    // Filter to only closed markets with resolved outcomes
+    const resolvedMarkets = markets.filter(m => m.closed && m.closedTime && m.resolvedOutcome);
+
+    if (resolvedMarkets.length === 0) {
+      return { marketCount: 0, dataPoints: [], stats: null };
+    }
+
+    // Get all price history for these markets
+    const allPriceData = await ctx.db
+      .query("dailyPriceSummary")
+      .withIndex("by_market")
+      .collect();
+
+    const marketIds = new Set(resolvedMarkets.map(m => m._id));
+    const relevantPriceData = allPriceData.filter(p => marketIds.has(p.marketId));
+
+    // Bucket size in hours for grouping
+    const BUCKET_SIZE = 6;
+
+    // Collect skew values by time bucket
+    // Key = hours before close (bucketed), Value = array of skew values
+    const skewByBucket = new Map<number, number[]>();
+
+    for (const market of resolvedMarkets) {
+      const closedTime = market.closedTime!;
+      const resolvedToYes = market.resolvedOutcome === "Yes";
+
+      // Get price data for "Yes" outcome only
+      const marketPrices = relevantPriceData.filter(
+        p => p.marketId === market._id && p.outcomeLabel === "Yes"
+      );
+
+      for (const pricePoint of marketPrices) {
+        // Calculate timestamp from date and hour
+        const hour = pricePoint.hour ?? 12;
+        const priceTimestamp = new Date(`${pricePoint.date}T${hour.toString().padStart(2, "0")}:00:00Z`).getTime();
+
+        // Calculate hours before close
+        const hoursBeforeClose = (closedTime - priceTimestamp) / (1000 * 60 * 60);
+
+        // Skip if price is after close or too far in the past (> 30 days)
+        if (hoursBeforeClose < 0 || hoursBeforeClose > 30 * 24) continue;
+
+        // Bucket to nearest interval
+        const bucket = Math.round(hoursBeforeClose / BUCKET_SIZE) * BUCKET_SIZE;
+
+        const price = pricePoint.price ?? pricePoint.noonPrice;
+
+        // Calculate skew: distance from final result
+        const finalPrice = resolvedToYes ? 1.0 : 0.0;
+        const skew = Math.abs(finalPrice - price);
+
+        if (!skewByBucket.has(bucket)) {
+          skewByBucket.set(bucket, []);
+        }
+        skewByBucket.get(bucket)!.push(skew);
+      }
+    }
+
+    // Calculate average skew for each bucket
+    type AggregatedDataPoint = {
+      hoursBeforeClose: number;
+      avgSkew: number;
+      minSkew: number;
+      maxSkew: number;
+      sampleCount: number;
+    };
+
+    const dataPoints: AggregatedDataPoint[] = [];
+
+    for (const [bucket, skews] of skewByBucket) {
+      const avg = skews.reduce((a, b) => a + b, 0) / skews.length;
+      const min = Math.min(...skews);
+      const max = Math.max(...skews);
+
+      dataPoints.push({
+        hoursBeforeClose: bucket,
+        avgSkew: avg,
+        minSkew: min,
+        maxSkew: max,
+        sampleCount: skews.length,
+      });
+    }
+
+    // Sort by hours before close (descending - furthest from close first)
+    dataPoints.sort((a, b) => b.hoursBeforeClose - a.hoursBeforeClose);
+
+    // Calculate overall stats
+    const allSkews = Array.from(skewByBucket.values()).flat();
+    const overallAvgSkew = allSkews.length > 0
+      ? allSkews.reduce((a, b) => a + b, 0) / allSkews.length
+      : 0;
+
+    // Get skew at different time points
+    const skewAt24h = dataPoints.find(d => d.hoursBeforeClose === 24)?.avgSkew;
+    const skewAt48h = dataPoints.find(d => d.hoursBeforeClose === 48)?.avgSkew;
+    const skewAt7d = dataPoints.find(d => d.hoursBeforeClose === 168)?.avgSkew; // 7 days
+
+    return {
+      marketCount: resolvedMarkets.length,
+      dataPoints,
+      stats: {
+        overallAvgSkew,
+        skewAt24h,
+        skewAt48h,
+        skewAt7d,
+        totalDataPoints: allSkews.length,
+      },
+    };
+  },
+});

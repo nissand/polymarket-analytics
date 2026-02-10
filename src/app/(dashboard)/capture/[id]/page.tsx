@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/dashboard/status-badge";
 import { CaptureProgress } from "@/components/capture/capture-progress";
 import { CapturedMarketsList } from "@/components/capture/captured-markets-list";
+import { SkewAnalysisChart } from "@/components/charts/skew-analysis-chart";
 
 export default function CaptureDetailPage() {
   const params = useParams();
@@ -19,6 +20,7 @@ export default function CaptureDetailPage() {
 
   const request = useQuery(api.captureRequests.get, { id });
   const markets = useQuery(api.markets.listByRequest, { captureRequestId: id });
+  const skewAnalysis = useQuery(api.priceHistory.getSkewAnalysis, { captureRequestId: id });
 
   if (!request) {
     return (
@@ -43,7 +45,7 @@ export default function CaptureDetailPage() {
       </div>
 
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Import Request</h1>
+        <h1 className="text-2xl font-bold">{request.name || "Import Request"}</h1>
         <StatusBadge status={request.status} />
       </div>
 
@@ -72,6 +74,13 @@ export default function CaptureDetailPage() {
             </div>
           )}
 
+          {request.searchTerm && (
+            <div>
+              <p className="text-sm text-muted-foreground">Search Term</p>
+              <p className="font-medium">{request.searchTerm}</p>
+            </div>
+          )}
+
           <div>
             <p className="text-sm text-muted-foreground">Created</p>
             <p className="font-medium">
@@ -94,6 +103,15 @@ export default function CaptureDetailPage() {
       </Card>
 
       <CaptureProgress request={request} />
+
+      {/* Skew Analysis Chart */}
+      {skewAnalysis && skewAnalysis.marketCount > 0 && (
+        <SkewAnalysisChart
+          marketCount={skewAnalysis.marketCount}
+          dataPoints={skewAnalysis.dataPoints}
+          stats={skewAnalysis.stats}
+        />
+      )}
 
       <CapturedMarketsList markets={markets || []} captureRequestId={id} />
     </div>

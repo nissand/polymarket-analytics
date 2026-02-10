@@ -31,6 +31,19 @@ function parseJsonArray(value: string | string[] | undefined): string[] {
   }
 }
 
+// Check if event/market matches search term
+function matchesSearchTerm(
+  searchTerm: string | undefined,
+  title?: string,
+  slug?: string
+): boolean {
+  if (!searchTerm) return true;
+  const term = searchTerm.toLowerCase();
+  const titleMatch = title?.toLowerCase().includes(term) ?? false;
+  const slugMatch = slug?.toLowerCase().includes(term) ?? false;
+  return titleMatch || slugMatch;
+}
+
 // Derive resolved outcome from outcome prices
 function deriveResolvedOutcome(
   outcomes: string[],
@@ -70,10 +83,14 @@ export const startImport = internalAction({
       const startDateMin = new Date(request.dateRangeStart).toISOString();
       const startDateMax = new Date(request.dateRangeEnd).toISOString();
       const categoryFilter = request.category;
+      const searchTerm = request.searchTerm?.toLowerCase().trim();
 
       console.log(`Fetching closed markets with startDate between ${startDateMin} and ${startDateMax}`);
       if (categoryFilter) {
         console.log(`Filtering by category: ${categoryFilter}`);
+      }
+      if (searchTerm) {
+        console.log(`Filtering by search term: "${searchTerm}"`);
       }
 
       // Discover closed markets matching criteria
@@ -114,6 +131,10 @@ export const startImport = internalAction({
 
           // Extract markets from each event
           for (const event of events) {
+            // Filter by search term if provided
+            if (searchTerm && !matchesSearchTerm(searchTerm, event.title, event.slug)) {
+              continue;
+            }
             // Store event data
             eventDataMap.set(event.id, event);
             if (event.category) {
@@ -215,7 +236,16 @@ export const startImport = internalAction({
           return;
         }
 
-        filteredMarkets = allMarkets;
+        // Filter by search term if provided
+        if (searchTerm) {
+          filteredMarkets = allMarkets.filter(market =>
+            matchesSearchTerm(searchTerm, market.question, market.slug) ||
+            matchesSearchTerm(searchTerm, market.events?.[0]?.title, market.events?.[0]?.slug)
+          );
+          console.log(`After search term filter: ${filteredMarkets.length} markets`);
+        } else {
+          filteredMarkets = allMarkets;
+        }
 
         // Fetch events for all markets
         const uniqueEventIds = new Set<string>();

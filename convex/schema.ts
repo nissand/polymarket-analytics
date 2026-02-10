@@ -7,6 +7,7 @@ export default defineSchema({
 
   captureRequests: defineTable({
     userId: v.id("users"),
+    name: v.optional(v.string()), // User-defined name for the capture request
     status: v.union(
       v.literal("pending"),
       v.literal("processing"),
@@ -20,6 +21,7 @@ export default defineSchema({
     dateRangeEnd: v.number(),
     limit: v.optional(v.number()), // Max markets to import
     category: v.optional(v.string()), // Filter by event category
+    searchTerm: v.optional(v.string()), // Filter by event/market name
     progress: v.object({
       totalEvents: v.number(),
       processedEvents: v.number(),
