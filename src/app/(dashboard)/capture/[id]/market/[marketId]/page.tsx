@@ -120,6 +120,15 @@ export default function MarketDetailPage() {
               value={market.outcomePrices.map((p: string) => formatPrice(parseFloat(p))).join(", ")}
             />
             <DetailRow
+              label="CLOB Token IDs"
+              value={market.clobTokenIds?.length > 0 ? market.clobTokenIds.join(", ") : "None (no price history available)"}
+              mono
+            />
+            <DetailRow
+              label="Price Data Points"
+              value={priceData?.length > 0 ? `${priceData.length} records` : "No price data captured"}
+            />
+            <DetailRow
               label="Volume"
               value={
                 market.volume

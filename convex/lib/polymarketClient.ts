@@ -313,6 +313,8 @@ export async function fetchClobPriceHistory(params: {
   url.searchParams.set("endTs", String(params.endTs));
   url.searchParams.set("fidelity", String(params.fidelity));
 
+  console.log(`CLOB request: ${url.toString()}`);
+
   const response = await fetchWithRetry(url.toString());
 
   if (!response.ok) {
@@ -325,8 +327,13 @@ export async function fetchClobPriceHistory(params: {
 
   // Handle different response formats
   if (!data.history) {
-    console.log(`CLOB API returned no history field for token ${params.tokenId}:`, JSON.stringify(data).substring(0, 200));
+    console.log(`CLOB API returned no history field for token ${params.tokenId}:`, JSON.stringify(data).substring(0, 500));
     return { history: [] };
+  }
+
+  if (data.history.length === 0) {
+    console.log(`CLOB API returned empty history array for token ${params.tokenId}`);
+    console.log(`  Request params: startTs=${params.startTs} (${new Date(params.startTs * 1000).toISOString()}), endTs=${params.endTs} (${new Date(params.endTs * 1000).toISOString()})`);
   }
 
   return data;
