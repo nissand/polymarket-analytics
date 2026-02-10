@@ -216,11 +216,32 @@ export function SkewAnalysisChart({ marketCount, dataPoints, stats }: SkewAnalys
           </ResponsiveContainer>
         </div>
 
+        {/* Legend */}
+        <div className="flex flex-wrap gap-6 mt-4 text-sm">
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-0.5 bg-blue-500" />
+            <span className="text-muted-foreground">Average skew across all markets</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-3 bg-slate-400/20 border border-slate-400/30 rounded-sm" />
+            <span className="text-muted-foreground">Min-max range (spread between markets)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-0.5 bg-red-500 border-dashed" style={{ borderTopWidth: 2, borderStyle: 'dashed' }} />
+            <span className="text-muted-foreground">50% = random chance</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-0.5 bg-green-500" style={{ borderTopWidth: 2, borderStyle: 'dashed' }} />
+            <span className="text-muted-foreground">10% = well predicted</span>
+          </div>
+        </div>
+
         <div className="mt-4 text-xs text-muted-foreground">
           <p>
             <strong>How to read:</strong> The chart shows how far market prices were from the
             final outcome at each point in time. A skew of 0% means perfect prediction,
-            50% means random chance, and 100% means completely wrong.
+            50% means random chance, and 100% means completely wrong. A narrow gray band means
+            markets behave similarly; a wide band indicates high variance between markets.
           </p>
           <p className="mt-2">
             Based on {stats?.totalDataPoints || 0} price samples from {marketCount} markets.
